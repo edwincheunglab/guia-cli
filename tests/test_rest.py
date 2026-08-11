@@ -23,6 +23,7 @@ def test_approved_json_get_request() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.params["term"] == "EGFR"
+        assert request.url.params["db"] == "pubmed"
         assert "authorization" not in request.headers
         return httpx.Response(
             200,
@@ -32,7 +33,12 @@ def test_approved_json_get_request() -> None:
 
     result = _client(handler).request(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
-        params={"term": "EGFR"},
+        params={
+            "db": "pubmed",
+            "term": "EGFR",
+            "retmax": 10,
+            "retmode": "json",
+        },
     )
 
     assert result.status_code == 200
@@ -64,6 +70,52 @@ def test_approved_graphql_post_request() -> None:
     assert result.data == {"data": {"target": {"id": "ENSG1"}}}
 
 
+def test_json_encoded_parameter_object_is_normalized() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["db"] == "gene"
+        assert request.url.params["term"] == "BRCA1[gene]"
+        return httpx.Response(200, json={"esearchresult": {}}, request=request)
+
+    result = _client(handler).request(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        params=(
+            '{"db":"gene","term":"BRCA1[gene]",'
+            '"retmax":10,"retmode":"json"}'
+        ),  # type: ignore[arg-type]
+    )
+
+    assert result.status_code == 200
+
+
+def test_json_encoded_graphql_body_is_normalized() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert b"target" in request.content
+        return httpx.Response(200, json={"data": {}}, request=request)
+
+    result = _client(handler).request(
+        "https://api.platform.opentargets.org/api/v4/graphql",
+        method="POST",
+        json_body=(
+            '{"query":"query Target($id: String!) { '
+            'target(ensemblId: $id) { id } }",'
+            '"variables":{"id":"ENSG00000012048"}}'
+        ),  # type: ignore[arg-type]
+    )
+
+    assert result.status_code == 200
+
+
+def test_agent_wrapper_returns_malformed_mapping_error() -> None:
+    result = rest_tools.rest_api_call(
+        "https://rest.uniprot.org/uniprotkb/P38398.json",
+        params="{not-json}",  # type: ignore[arg-type]
+    )
+
+    assert result["ok"] is False
+    assert result["error_type"] == "RestToolError"
+    assert "malformed JSON text" in result["error"]
+
+
 def test_approved_text_response() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -74,7 +126,7 @@ def test_approved_text_response() -> None:
         )
 
     result = _client(handler).request(
-        "https://rest.uniprot.org/uniprotkb/search"
+        "https://rest.uniprot.org/uniprotkb/P00533.tsv"
     )
 
     assert result.data == "Entry\tProtein names\nP00533\tEGFR\n"
@@ -291,7 +343,7 @@ def test_empty_success_response_is_allowed_without_content_type() -> None:
         return httpx.Response(204, request=request)
 
     result = _client(handler).request(
-        "https://rest.uniprot.org/uniprotkb/search"
+        "https://rest.uniprot.org/uniprotkb/P00533.json"
     )
 
     assert result.status_code == 204
@@ -442,3 +494,280 @@ def test_bounded_chembl_activity_query_is_allowed() -> None:
     )
 
     assert result.data == {"activities": []}
+
+
+@pytest.mark.parametrize(
+    "json_body,error_match",
+    [
+        (
+            {
+                "query": {"type": "terminal"},
+                "return_type": "polymer_entity",
+                "request_options": {"paginate": {"start": 0, "rows": 10}},
+            },
+            "return_type 'entry'",
+        ),
+        (
+            {
+                "query": {"type": "terminal"},
+                "return_type": "entry",
+                "request_options": {"paginate": {"start": 0, "rows": 100}},
+            },
+            "row limit from 1 to 50",
+        ),
+        (
+            {
+                "query": {"type": "terminal"},
+                "return_type": "entry",
+            },
+            "request_options.paginate",
+        ),
+    ],
+)
+def test_unbounded_rcsb_searches_are_rejected(
+    json_body: dict[str, object],
+    error_match: str,
+) -> None:
+    client = _client(
+        lambda request: pytest.fail("Unsafe query should not reach the network")
+    )
+
+    with pytest.raises(rest_tools.UnsafeQueryError, match=error_match):
+        client.request(
+            "https://search.rcsb.org/rcsbsearch/v2/query",
+            method="POST",
+            json_body=json_body,
+        )
+
+
+def test_bounded_rcsb_search_is_allowed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"total_count": 1, "result_set": [{"identifier": "1M17"}]},
+            request=request,
+        )
+
+    result = _client(handler).request(
+        "https://search.rcsb.org/rcsbsearch/v2/query",
+        method="POST",
+        json_body={
+            "query": {
+                "type": "terminal",
+                "service": "full_text",
+                "parameters": {"value": "epidermal growth factor receptor"},
+            },
+            "return_type": "entry",
+            "request_options": {"paginate": {"start": 0, "rows": 10}},
+        },
+    )
+
+    assert result.data["result_set"][0]["identifier"] == "1M17"
+
+
+@pytest.mark.parametrize(
+    "params,error_match",
+    [
+        (
+            {"format": "json", "size": 10, "fields": "accession,id"},
+            "specific query",
+        ),
+        (
+            {"query": "EGFR", "format": "json", "size": 10},
+            "explicit field list",
+        ),
+        (
+            {
+                "query": "EGFR",
+                "format": "json",
+                "size": 100,
+                "fields": "accession,id",
+            },
+            "size from 1 to 50",
+        ),
+    ],
+)
+def test_unbounded_uniprot_searches_are_rejected(
+    params: dict[str, object],
+    error_match: str,
+) -> None:
+    client = _client(
+        lambda request: pytest.fail("Unsafe query should not reach the network")
+    )
+
+    with pytest.raises(rest_tools.UnsafeQueryError, match=error_match):
+        client.request(
+            "https://rest.uniprot.org/uniprotkb/search",
+            params=params,
+        )
+
+
+def test_bounded_uniprot_search_is_allowed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"results": [{"primaryAccession": "P00533"}]},
+            request=request,
+        )
+
+    result = _client(handler).request(
+        "https://rest.uniprot.org/uniprotkb/search",
+        params={
+            "query": "protein_name:(epidermal growth factor receptor)",
+            "format": "json",
+            "size": 10,
+            "fields": "accession,id,protein_name,organism_name,length",
+        },
+    )
+
+    assert result.data["results"][0]["primaryAccession"] == "P00533"
+
+
+@pytest.mark.parametrize(
+    "params,error_match",
+    [
+        (
+            {
+                "db": "protein",
+                "term": "BRCA1",
+                "retmax": 10,
+                "retmode": "json",
+            },
+            "gene and pubmed",
+        ),
+        (
+            {"db": "gene", "retmax": 10, "retmode": "json"},
+            "specific search term",
+        ),
+        (
+            {
+                "db": "gene",
+                "term": "BRCA1[gene]",
+                "retmax": 100,
+                "retmode": "json",
+            },
+            "retmax from 1 to 50",
+        ),
+    ],
+)
+def test_unbounded_ncbi_searches_are_rejected(
+    params: dict[str, object],
+    error_match: str,
+) -> None:
+    client = _client(
+        lambda request: pytest.fail("Unsafe query should not reach the network")
+    )
+
+    with pytest.raises(rest_tools.UnsafeQueryError, match=error_match):
+        client.request(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            params=params,
+        )
+
+
+def test_bounded_ncbi_gene_summary_is_allowed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"result": {"uids": ["672"], "672": {"name": "BRCA1"}}},
+            request=request,
+        )
+
+    result = _client(handler).request(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+        params={"db": "gene", "id": "672", "retmode": "json"},
+    )
+
+    assert result.data["result"]["672"]["name"] == "BRCA1"
+
+
+def test_ncbi_summary_rejects_unresolved_identifiers() -> None:
+    client = _client(
+        lambda request: pytest.fail("Unsafe query should not reach the network")
+    )
+
+    with pytest.raises(
+        rest_tools.UnsafeQueryError,
+        match="resolved numeric IDs",
+    ):
+        client.request(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+            params={"db": "gene", "id": "BRCA1", "retmode": "json"},
+        )
+
+
+@pytest.mark.parametrize(
+    "json_body,error_match",
+    [
+        (
+            {"query": "mutation { removeTarget(id: 1) }", "variables": {}},
+            "read-only",
+        ),
+        (
+            {
+                "query": (
+                    "query Search($q: String!) { "
+                    "search(queryString: $q) { hits { id name } } }"
+                ),
+                "variables": {"q": "BRCA1"},
+            },
+            "explicit result size",
+        ),
+        (
+            {
+                "query": (
+                    "query Search($q: String!, $size: Int!) { "
+                    "search(queryString: $q, page: {index: 0, size: $size}) "
+                    "{ hits { id name } } }"
+                ),
+                "variables": {"q": "BRCA1", "size": 100},
+            },
+            "sizes must be from 1 to 50",
+        ),
+    ],
+)
+def test_unsafe_open_targets_queries_are_rejected(
+    json_body: dict[str, object],
+    error_match: str,
+) -> None:
+    client = _client(
+        lambda request: pytest.fail("Unsafe query should not reach the network")
+    )
+
+    with pytest.raises(rest_tools.UnsafeQueryError, match=error_match):
+        client.request(
+            "https://api.platform.opentargets.org/api/v4/graphql",
+            method="POST",
+            json_body=json_body,
+        )
+
+
+def test_bounded_open_targets_search_is_allowed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "search": {
+                        "total": 1,
+                        "hits": [{"id": "ENSG00000012048", "name": "BRCA1"}],
+                    }
+                }
+            },
+            request=request,
+        )
+
+    result = _client(handler).request(
+        "https://api.platform.opentargets.org/api/v4/graphql",
+        method="POST",
+        json_body={
+            "query": (
+                "query Search($q: String!, $size: Int!) { "
+                "search(queryString: $q, page: {index: 0, size: $size}) "
+                "{ total hits { id name } } }"
+            ),
+            "variables": {"q": "BRCA1", "size": 5},
+        },
+    )
+
+    assert result.data["data"]["search"]["hits"][0]["name"] == "BRCA1"

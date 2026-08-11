@@ -71,6 +71,44 @@ def test_agent_can_write_only_supported_results(tmp_path: Path) -> None:
     assert csv_result["row_count"] == 1
 
 
+def test_agent_reads_large_tables_in_bounded_chunks(tmp_path: Path) -> None:
+    session = create_session("agent-table-chunks", data_dir=tmp_path)
+    rows = "\n".join(f"GENE{index},{index}" for index in range(150))
+    (session.uploads / "genes.csv").write_text(
+        f"gene,score\n{rows}\n",
+        encoding="utf-8",
+    )
+    context = _context(session.session_id, tmp_path)
+
+    first = read_session_file("genes.csv", tool_context=context)
+    second = read_session_file(
+        "genes.csv",
+        row_offset=100,
+        row_limit=50,
+        tool_context=context,
+    )
+
+    assert len(first["rows"]) == 100
+    assert first["total_rows"] == 150
+    assert first["has_more"] is True
+    assert first["next_row_offset"] == 100
+    assert second["rows"][0] == ["GENE100", "100"]
+    assert second["returned_rows"] == 50
+    assert second["has_more"] is False
+
+
+def test_agent_file_chunks_enforce_context_limits(tmp_path: Path) -> None:
+    session = create_session("agent-chunk-limits", data_dir=tmp_path)
+    context = _context(session.session_id, tmp_path)
+
+    with pytest.raises(ValueError, match="1-100"):
+        read_session_file(
+            "unused.csv",
+            row_limit=101,
+            tool_context=context,
+        )
+
+
 def test_agent_file_wrappers_require_session_context() -> None:
     with pytest.raises(RuntimeError, match="context is required"):
         list_session_files()

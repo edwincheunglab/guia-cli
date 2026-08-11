@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 
 import pytest
@@ -130,6 +132,62 @@ def test_context_length_error_returns_actionable_message(
     assert captured.err.startswith("Request too large:")
     assert "Narrow the query" in captured.err
     assert "ContextLengthExceededError" not in captured.err
+
+
+def test_show_a2a_reports_service_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routing = RoutingDecision(
+        agent="structural_biologist",
+        task="Inspect PDB 1M17.",
+        reason="Structure request.",
+    )
+
+    class LifecycleTeam(FakeTeam):
+        a2a_urls = {
+            "medicinal_chemist": "http://127.0.0.1:31001/",
+            "structural_biologist": "http://127.0.0.1:31002/",
+            "computational_biologist": "http://127.0.0.1:31003/",
+        }
+
+        def __init__(self, result: TeamResponse) -> None:
+            super().__init__(result)
+            self.lifecycle: list[str] = []
+
+        async def start(self) -> None:
+            self.lifecycle.append("start")
+
+        async def stop(self) -> None:
+            self.lifecycle.append("stop")
+
+    team = LifecycleTeam(
+        TeamResponse(
+            text="Structure result.",
+            routing=routing,
+            handled=True,
+            session_id="session-a2a",
+        )
+    )
+    monkeypatch.setattr(cli, "_build_team", lambda: team)
+
+    combined_output = io.StringIO()
+    with (
+        redirect_stdout(combined_output),
+        redirect_stderr(combined_output),
+    ):
+        exit_code = cli.main(
+            ["ask", "Inspect PDB 1M17", "--show-a2a"]
+        )
+    output = combined_output.getvalue()
+
+    assert exit_code == 0
+    assert "A2A services started:" in output
+    assert "structural_biologist: http://127.0.0.1:31002/" in output
+    assert "A2A services stopped." in output
+    assert output.index("Structure result.") < output.index(
+        "A2A services stopped."
+    )
+    assert team.lifecycle == ["start", "stop"]
 
 
 def test_cli_without_command_prints_help(

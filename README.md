@@ -7,8 +7,9 @@ smaller tool surface than the full GUIA platform.
 ## Project status
 
 GUIA CLI is in early development. The current preview provides a routing
-orchestrator and a restricted Medicinal Chemist. Structural Biology,
-Computational Biology, and Scientific Critic execution are not yet available.
+orchestrator, a restricted Medicinal Chemist, and a restricted Structural
+Biologist, and a restricted Computational Biologist. Scientific Critic
+execution is not yet available.
 
 The planned local agent roster is:
 
@@ -70,10 +71,28 @@ Ask a medicinal chemistry or compound-retrieval question:
 guia ask "Find reported EGFR inhibitors"
 ```
 
+Or ask about experimentally determined protein structures:
+
+```bash
+guia ask "Compare representative human EGFR structures in the PDB"
+```
+
+Or retrieve and interpret gene-level evidence:
+
+```bash
+guia ask "Summarize functional and disease evidence for human BRCA1"
+```
+
 Display the routing decision:
 
 ```bash
 guia ask "Find reported EGFR inhibitors" --show-route
+```
+
+Display the temporary localhost A2A endpoints and cleanup status:
+
+```bash
+guia ask "Compare representative human EGFR structures" --show-a2a
 ```
 
 GUIA CLI prints a session identifier that can be reused to access the same
@@ -87,11 +106,21 @@ The current preview can query approved public APIs and work with approved small
 files in its session directory. Requests routed to agents that are not yet
 implemented return an explicit availability message.
 
+For each `guia ask` invocation, all currently implemented domain agents start
+eagerly as in-process A2A JSON-RPC services bound to random
+`127.0.0.1` ports. The orchestrator dispatches domain tasks through A2A using a
+run-scoped bearer token and the GUIA session ID as the A2A context ID. The
+services and token are cleaned up automatically when the command finishes.
+Domain-agent A2A requests have a one-hour timeout for long biomedical queries.
+
 API results are compacted before they enter model context. GUIA CLI preserves
 scientifically useful identifiers and pagination metadata, limits repeated
 records and oversized fields, and reports truncation metadata to the agent.
-Broad ChEMBL activity requests are rejected unless they include a resolved
-ChEMBL identifier, selected fields, and a result limit of 50 or fewer.
+Bounded-query rules are enforced for ChEMBL, RCSB PDB, UniProt, NCBI
+E-utilities, and Open Targets.
+
+Uploaded tables and text are also returned to agents in bounded chunks with
+continuation offsets, preventing a large local file from filling model context.
 
 If a provider still rejects an oversized context, the CLI returns a concise
 message suggesting narrower scientific filters or a larger-context model.

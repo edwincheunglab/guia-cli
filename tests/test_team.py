@@ -66,6 +66,52 @@ def test_team_routes_medicinal_task_with_shared_session() -> None:
     ]
 
 
+def test_team_routes_structural_task_with_shared_session() -> None:
+    routing = RoutingDecision(
+        agent="structural_biologist",
+        task="Inspect experimental metadata for PDB 1M17.",
+        reason="Protein structure request.",
+    )
+    structural_biologist = FakeDomainAgent("RCSB PDB results")
+    team = GuiaTeam(
+        orchestrator=FakeOrchestrator(routing),
+        agents={"structural_biologist": structural_biologist},
+    )
+
+    result = asyncio.run(
+        team.ask("Inspect PDB 1M17", session_id="session-structure")
+    )
+
+    assert result.text == "RCSB PDB results"
+    assert result.handled is True
+    assert structural_biologist.calls == [
+        ("Inspect experimental metadata for PDB 1M17.", "session-structure")
+    ]
+
+
+def test_team_routes_computational_task_with_shared_session() -> None:
+    routing = RoutingDecision(
+        agent="computational_biologist",
+        task="Summarize functional evidence for human BRCA1.",
+        reason="Gene annotation request.",
+    )
+    computational_biologist = FakeDomainAgent("Integrated gene evidence")
+    team = GuiaTeam(
+        orchestrator=FakeOrchestrator(routing),
+        agents={"computational_biologist": computational_biologist},
+    )
+
+    result = asyncio.run(
+        team.ask("Summarize human BRCA1", session_id="session-computational")
+    )
+
+    assert result.text == "Integrated gene evidence"
+    assert result.handled is True
+    assert computational_biologist.calls == [
+        ("Summarize functional evidence for human BRCA1.", "session-computational")
+    ]
+
+
 def test_team_always_reports_new_result_absolute_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -141,19 +187,19 @@ def test_team_returns_clarification_without_agent_call() -> None:
 
 def test_team_reports_agent_not_available_in_preview() -> None:
     routing = RoutingDecision(
-        agent="structural_biologist",
-        task="Inspect PDB 4HHB.",
-        reason="Protein structure request.",
+        agent="scientific_critic",
+        task="Critique an RNA-seq interpretation.",
+        reason="Scientific critique request.",
     )
     team = GuiaTeam(
         orchestrator=FakeOrchestrator(routing),
         agents={},
     )
 
-    result = asyncio.run(team.ask("Inspect PDB 4HHB"))
+    result = asyncio.run(team.ask("Critique an RNA-seq interpretation"))
 
     assert result.handled is False
-    assert "structural biologist" in result.text
+    assert "scientific critic" in result.text
     assert "not available" in result.text
 
 

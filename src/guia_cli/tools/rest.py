@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -49,6 +50,8 @@ _BULKY_RESPONSE_KEYS = frozenset(
         "description",
         "full_molformula",
         "molfile",
+        "pdbx_seq_one_letter_code",
+        "pdbx_seq_one_letter_code_can",
         "sequence",
         "sdf",
         "svg",
@@ -80,6 +83,28 @@ _PRIORITY_RESPONSE_KEYS = (
     "MolecularFormula",
     "MolecularWeight",
     "IUPACName",
+    "rcsb_id",
+    "identifier",
+    "score",
+    "result_set",
+    "resolution_combined",
+    "experimental_method",
+    "accession",
+    "primaryAccession",
+    "uniProtkbId",
+    "proteinDescription",
+    "sequence",
+    "idlist",
+    "uid",
+    "title",
+    "pubdate",
+    "approvedSymbol",
+    "approvedName",
+    "biotype",
+    "hits",
+    "entity",
+    "disease",
+    "datatypeScores",
 )
 _DEFAULT_HEADERS = {
     "Accept": (
@@ -383,6 +408,27 @@ def _reject_sensitive_values(value: object) -> None:
             _reject_sensitive_values(item)
 
 
+def _normalize_request_mapping(
+    value: object,
+    *,
+    field_name: str,
+) -> Mapping[str, object] | None:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise RestToolError(
+                f"{field_name} must be a JSON object, not malformed JSON text."
+            ) from exc
+        if isinstance(parsed, Mapping):
+            return parsed
+    raise RestToolError(f"{field_name} must be a JSON object.")
+
+
 def _request_payload_size(
     params: Mapping[str, object] | None,
     json_body: Mapping[str, object] | None,
@@ -415,11 +461,188 @@ def _effective_query(
 def _validate_bounded_query(
     url: str,
     params: Mapping[str, object] | None,
+    json_body: Mapping[str, object] | None,
 ) -> None:
     parsed = urlsplit(url)
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path.rstrip("/")
+
     if (
-        (parsed.hostname or "").lower().rstrip(".") != "www.ebi.ac.uk"
-        or not parsed.path.rstrip("/").endswith("/chembl/api/data/activity.json")
+        hostname == "eutils.ncbi.nlm.nih.gov"
+        and path.endswith("/entrez/eutils/esearch.fcgi")
+    ):
+        query = _effective_query(url, params)
+        if str(query.get("db", "")).lower() not in {"gene", "pubmed"}:
+            raise UnsafeQueryError(
+                "NCBI ESearch is limited to the gene and pubmed databases."
+            )
+        if not str(query.get("term", "")).strip():
+            raise UnsafeQueryError(
+                "NCBI ESearch requires a specific search term."
+            )
+        if str(query.get("retmode", "")).lower() != "json":
+            raise UnsafeQueryError(
+                "NCBI ESearch requires retmode 'json'."
+            )
+        try:
+            retmax = int(str(query.get("retmax", "")))
+        except ValueError as exc:
+            raise UnsafeQueryError(
+                "NCBI ESearch requires an integer retmax from 1 to 50."
+            ) from exc
+        if not 1 <= retmax <= 50:
+            raise UnsafeQueryError(
+                "NCBI ESearch requires retmax from 1 to 50."
+            )
+        return
+
+    if (
+        hostname == "eutils.ncbi.nlm.nih.gov"
+        and path.endswith("/entrez/eutils/esummary.fcgi")
+    ):
+        query = _effective_query(url, params)
+        if str(query.get("db", "")).lower() not in {"gene", "pubmed"}:
+            raise UnsafeQueryError(
+                "NCBI ESummary is limited to the gene and pubmed databases."
+            )
+        if str(query.get("retmode", "")).lower() != "json":
+            raise UnsafeQueryError(
+                "NCBI ESummary requires retmode 'json'."
+            )
+        identifiers = [
+            item.strip()
+            for item in str(query.get("id", "")).split(",")
+            if item.strip()
+        ]
+        if (
+            not identifiers
+            or len(identifiers) > 50
+            or any(not item.isdigit() for item in identifiers)
+        ):
+            raise UnsafeQueryError(
+                "NCBI ESummary requires 1-50 resolved numeric IDs."
+            )
+        return
+
+    if (
+        hostname == "api.platform.opentargets.org"
+        and path.endswith("/api/v4/graphql")
+    ):
+        if not isinstance(json_body, Mapping):
+            raise UnsafeQueryError(
+                "Open Targets queries require a bounded GraphQL JSON body."
+            )
+        graph_query = str(json_body.get("query", "")).strip()
+        lowered_query = graph_query.lower()
+        if not graph_query:
+            raise UnsafeQueryError(
+                "Open Targets requests require a GraphQL query."
+            )
+        if re.search(r"\b(?:mutation|subscription)\b", lowered_query):
+            raise UnsafeQueryError(
+                "Open Targets permits read-only GraphQL queries."
+            )
+        if "__schema" in graph_query or "__type" in graph_query:
+            raise UnsafeQueryError(
+                "Open Targets GraphQL introspection is not allowed."
+            )
+        variables = json_body.get("variables", {})
+        if not isinstance(variables, Mapping):
+            raise UnsafeQueryError(
+                "Open Targets GraphQL variables must be an object."
+            )
+        result_sizes: list[int] = []
+        for key, value in variables.items():
+            if _normalized_key(key) not in {"first", "limit", "size"}:
+                continue
+            try:
+                result_sizes.append(int(str(value)))
+            except ValueError as exc:
+                raise UnsafeQueryError(
+                    "Open Targets result sizes must be integers from 1 to 50."
+                ) from exc
+        result_sizes.extend(
+            int(match)
+            for match in re.findall(r"\bsize\s*:\s*(\d+)", graph_query)
+        )
+        bounded_fields = ("associateddiseases", "associatedtargets", "search")
+        if any(
+            re.search(rf"\b{field}\s*\(", lowered_query)
+            for field in bounded_fields
+        ) and not result_sizes:
+            raise UnsafeQueryError(
+                "Open Targets list queries require an explicit result size."
+            )
+        if any(not 1 <= size <= 50 for size in result_sizes):
+            raise UnsafeQueryError(
+                "Open Targets result sizes must be from 1 to 50."
+            )
+        return
+
+    if hostname == "search.rcsb.org" and path.endswith("/rcsbsearch/v2/query"):
+        if not isinstance(json_body, Mapping):
+            raise UnsafeQueryError(
+                "RCSB searches require a bounded JSON search body."
+            )
+        if not isinstance(json_body.get("query"), Mapping):
+            raise UnsafeQueryError(
+                "RCSB searches require a structured 'query' object."
+            )
+        if json_body.get("return_type") != "entry":
+            raise UnsafeQueryError(
+                "RCSB searches must use return_type 'entry'."
+            )
+        request_options = json_body.get("request_options")
+        paginate = (
+            request_options.get("paginate")
+            if isinstance(request_options, Mapping)
+            else None
+        )
+        if not isinstance(paginate, Mapping):
+            raise UnsafeQueryError(
+                "RCSB searches require request_options.paginate with 1-50 rows."
+            )
+        try:
+            rows = int(str(paginate.get("rows", "")))
+        except ValueError as exc:
+            raise UnsafeQueryError(
+                "RCSB searches require an integer row limit from 1 to 50."
+            ) from exc
+        if not 1 <= rows <= 50:
+            raise UnsafeQueryError(
+                "RCSB searches require a row limit from 1 to 50."
+            )
+        return
+
+    if hostname == "rest.uniprot.org" and path.endswith("/uniprotkb/search"):
+        query = _effective_query(url, params)
+        if not str(query.get("query", "")).strip():
+            raise UnsafeQueryError(
+                "UniProt searches require a specific query."
+            )
+        if str(query.get("format", "")).lower() != "json":
+            raise UnsafeQueryError(
+                "UniProt searches require format 'json'."
+            )
+        if not str(query.get("fields", "")).strip():
+            raise UnsafeQueryError(
+                "UniProt searches require an explicit field list."
+            )
+        try:
+            size = int(str(query.get("size", "")))
+        except ValueError as exc:
+            raise UnsafeQueryError(
+                "UniProt searches require an integer size from 1 to 50."
+            ) from exc
+        if not 1 <= size <= 50:
+            raise UnsafeQueryError(
+                "UniProt searches require a result size from 1 to 50."
+            )
+        return
+
+    if (
+        hostname != "www.ebi.ac.uk"
+        or not path.endswith("/chembl/api/data/activity.json")
     ):
         return
 
@@ -543,20 +766,28 @@ class RestrictedRestClient:
 
         safe_url = validate_public_api_url(url)
         safe_method = method.strip().upper()
+        safe_params = _normalize_request_mapping(
+            params,
+            field_name="params",
+        )
+        safe_json_body = _normalize_request_mapping(
+            json_body,
+            field_name="json_body",
+        )
         if safe_method not in ALLOWED_METHODS:
             raise UnsupportedMethodError(
                 f"Method '{safe_method}' is not allowed; use GET or POST."
             )
-        if safe_method == "GET" and json_body is not None:
+        if safe_method == "GET" and safe_json_body is not None:
             raise RestToolError("GET requests cannot include a JSON body.")
 
-        _reject_sensitive_values(params)
-        _reject_sensitive_values(json_body)
-        _validate_bounded_query(safe_url, params)
-        if _request_payload_size(params, json_body) > MAX_REQUEST_BYTES:
+        _reject_sensitive_values(safe_params)
+        _reject_sensitive_values(safe_json_body)
+        if _request_payload_size(safe_params, safe_json_body) > MAX_REQUEST_BYTES:
             raise RequestSizeLimitError(
                 f"Request exceeds the {MAX_REQUEST_BYTES}-byte limit."
             )
+        _validate_bounded_query(safe_url, safe_params, safe_json_body)
 
         try:
             with httpx.Client(
@@ -568,8 +799,8 @@ class RestrictedRestClient:
                 with client.stream(
                     safe_method,
                     safe_url,
-                    params=params,
-                    json=json_body,
+                    params=safe_params,
+                    json=safe_json_body,
                 ) as response:
                     if response.is_redirect:
                         raise RedirectNotAllowedError(

@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from google.adk.models.base_llm import BaseLlm
 
+from guia_cli.a2a.cluster import LocalA2ACluster
+from guia_cli.agents.computational_biologist import ComputationalBiologistAgent
 from guia_cli.agents.medicinal_chemist import MedicinalChemistAgent
 from guia_cli.agents.orchestrator import (
     AGENT_ROSTER,
@@ -16,6 +18,7 @@ from guia_cli.agents.orchestrator import (
     LiteOrchestrator,
     RoutingDecision,
 )
+from guia_cli.agents.structural_biologist import StructuralBiologistAgent
 from guia_cli.sessions import SessionError, open_session
 
 
@@ -95,20 +98,49 @@ class GuiaTeam:
         orchestrator: OrchestratorProtocol | None = None,
         agents: Mapping[AgentName, DomainAgentProtocol] | None = None,
     ) -> None:
+        self._a2a_cluster: LocalA2ACluster | None = None
         if model is not None and (orchestrator is not None or agents is not None):
             raise ValueError(
                 "Provide a model or injected team components, not both."
             )
         if model is not None:
             self._orchestrator: OrchestratorProtocol = LiteOrchestrator(model)
-            self._agents: dict[AgentName, DomainAgentProtocol] = {
+            local_agents = {
                 "medicinal_chemist": MedicinalChemistAgent(model),
+                "structural_biologist": StructuralBiologistAgent(model),
+                "computational_biologist": ComputationalBiologistAgent(model),
             }
+            self._a2a_cluster = LocalA2ACluster(local_agents)
+            self._agents: dict[AgentName, DomainAgentProtocol] = {}
         else:
             if orchestrator is None:
                 raise ValueError("An orchestrator is required.")
             self._orchestrator = orchestrator
             self._agents = dict(agents or {})
+
+    async def start(self) -> None:
+        """Eagerly start all production domain agents as local A2A services."""
+
+        if self._a2a_cluster is None:
+            return
+        await self._a2a_cluster.start()
+        self._agents = dict(self._a2a_cluster.proxies)
+
+    async def stop(self) -> None:
+        """Stop production A2A services and discard their client proxies."""
+
+        if self._a2a_cluster is None:
+            return
+        await self._a2a_cluster.stop()
+        self._agents.clear()
+
+    @property
+    def a2a_urls(self) -> Mapping[AgentName, str]:
+        """Return active A2A endpoints without exposing authentication."""
+
+        if self._a2a_cluster is None:
+            return {}
+        return self._a2a_cluster.urls
 
     async def ask(
         self,
@@ -116,6 +148,10 @@ class GuiaTeam:
         *,
         session_id: str | None = None,
     ) -> TeamResponse:
+        if self._a2a_cluster is not None and not self._agents:
+            raise RuntimeError(
+                "GUIA Team must be started before dispatching A2A requests."
+            )
         selected_session_id = session_id or uuid4().hex
         routing = await self._orchestrator.route(
             request,

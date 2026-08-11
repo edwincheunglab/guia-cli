@@ -8,7 +8,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from typing import Sequence
 
-from guia_cli.agents.team import GuiaTeam
+from guia_cli.agents.team import GuiaTeam, TeamResponse
 from guia_cli.runtime import (
     ContextLengthExceededError,
     ModelSettings,
@@ -48,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show which in-house agent was selected.",
     )
+    ask_parser.add_argument(
+        "--show-a2a",
+        action="store_true",
+        help="Show local A2A service startup, endpoints, and cleanup.",
+    )
     return parser
 
 
@@ -58,12 +63,40 @@ def _build_team() -> GuiaTeam:
 
 def _run_ask(args: argparse.Namespace) -> int:
     team = _build_team()
-    result = asyncio.run(
-        team.ask(
-            args.prompt,
-            session_id=args.session,
-        )
-    )
+    return asyncio.run(_run_ask_async(team, args))
+
+
+async def _run_ask_async(
+    team: GuiaTeam,
+    args: argparse.Namespace,
+) -> int:
+    start = getattr(team, "start", None)
+    stop = getattr(team, "stop", None)
+    if not callable(start):
+        result = await team.ask(args.prompt, session_id=args.session)
+        return _print_ask_result(result, args)
+
+    show_a2a = bool(getattr(args, "show_a2a", False))
+    await start()
+    try:
+        if show_a2a:
+            endpoints = getattr(team, "a2a_urls", {})
+            print("A2A services started:", file=sys.stderr, flush=True)
+            for agent_name, url in endpoints.items():
+                print(f"  {agent_name}: {url}", file=sys.stderr, flush=True)
+        result = await team.ask(args.prompt, session_id=args.session)
+        return _print_ask_result(result, args)
+    finally:
+        if callable(stop):
+            await stop()
+        if show_a2a:
+            print("A2A services stopped.", file=sys.stderr, flush=True)
+
+
+def _print_ask_result(
+    result: TeamResponse,
+    args: argparse.Namespace,
+) -> int:
     if args.show_route:
         selected = result.routing.agent or "orchestrator"
         print(

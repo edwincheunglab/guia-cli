@@ -18,6 +18,7 @@ AGENT_NAMES: tuple[AgentName, ...] = (
     "medicinal_chemist",
     "structural_biologist",
     "computational_biologist",
+    "scientific_critic",
 )
 
 
@@ -48,7 +49,7 @@ def _agents(
     selected: RecordingAgent | None = None,
 ) -> dict[AgentName, RecordingAgent]:
     return {
-        name: selected if name == "medicinal_chemist" and selected else RecordingAgent()
+        name: selected if name == "scientific_critic" and selected else RecordingAgent()
         for name in AGENT_NAMES
     }
 
@@ -61,18 +62,18 @@ def test_cluster_eagerly_starts_all_agents_and_propagates_context() -> None:
         await cluster.start()
         try:
             assert set(cluster.urls) == set(AGENT_NAMES)
-            assert len(set(cluster.urls.values())) == 3
+            assert len(set(cluster.urls.values())) == 4
             assert all(
                 url.startswith("http://127.0.0.1:")
                 for url in cluster.urls.values()
             )
-            result = await cluster.proxies["medicinal_chemist"].run(
-                "Find EGFR inhibitors.",
+            result = await cluster.proxies["scientific_critic"].run(
+                "Critique the evidence.",
                 "session-a2a",
             )
             assert result == "A2A result"
             assert selected.calls == [
-                ("Find EGFR inhibitors.", "session-a2a")
+                ("Critique the evidence.", "session-a2a")
             ]
         finally:
             await cluster.stop()
@@ -118,7 +119,7 @@ def test_context_length_errors_cross_a2a_as_actionable_errors() -> None:
                 ContextLengthExceededError,
                 match="Narrow the query",
             ):
-                await cluster.proxies["medicinal_chemist"].run(
+                await cluster.proxies["scientific_critic"].run(
                     "Return every record.",
                     "session-context",
                 )
@@ -132,7 +133,7 @@ def test_unexpected_agent_errors_do_not_leak_internal_details() -> None:
     async def exercise() -> None:
         async with LocalA2ACluster(_agents(selected)) as cluster:
             with pytest.raises(A2ADispatchError) as exc_info:
-                await cluster.proxies["medicinal_chemist"].run(
+                await cluster.proxies["scientific_critic"].run(
                     "Run task.",
                     "session-error",
                 )

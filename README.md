@@ -7,11 +7,10 @@ smaller tool surface than the full GUIA platform.
 ## Project status
 
 GUIA CLI is in early development. The current preview provides a routing
-orchestrator, a restricted Medicinal Chemist, and a restricted Structural
-Biologist, and a restricted Computational Biologist. Scientific Critic
-execution is not yet available.
+orchestrator and restricted Medicinal Chemist, Structural Biologist,
+Computational Biologist, and Scientific Critic agents.
 
-The planned local agent roster is:
+The local agent roster is:
 
 - Orchestrator
 - Medicinal Chemist
@@ -83,6 +82,12 @@ Or retrieve and interpret gene-level evidence:
 guia ask "Summarize functional and disease evidence for human BRCA1"
 ```
 
+Or critically review a supplied claim, report, or session file:
+
+```bash
+guia ask "Critique whether the evidence in results/EGFR_summary.md supports its conclusions" --session SESSION_ID
+```
+
 Display the routing decision:
 
 ```bash
@@ -103,8 +108,7 @@ guia ask "Review the files saved in this session" --session SESSION_ID
 ```
 
 The current preview can query approved public APIs and work with approved small
-files in its session directory. Requests routed to agents that are not yet
-implemented return an explicit availability message.
+files in its session directory.
 
 For each `guia ask` invocation, all currently implemented domain agents start
 eagerly as in-process A2A JSON-RPC services bound to random

@@ -15,6 +15,7 @@ from guia_cli.runtime import (
     RuntimeConfigurationError,
     _is_context_length_error,
     _final_text,
+    _user_facing_text,
     create_model,
 )
 
@@ -105,6 +106,48 @@ def test_final_text_ignores_non_final_event() -> None:
     )
 
     assert _final_text(event) is None
+
+
+def test_user_facing_text_removes_internal_draft_before_markdown_answer() -> None:
+    response = """
+The user is asking me to critically evaluate a causal claim.
+Let me analyze the methodological limitations.
+I should provide a comprehensive response.
+
+## Critical Evaluation
+
+Correlation alone does not establish causation.
+"""
+
+    assert _user_facing_text(response) == (
+        "## Critical Evaluation\n\n"
+        "Correlation alone does not establish causation."
+    )
+
+
+def test_user_facing_text_preserves_normal_intro_before_heading() -> None:
+    response = """
+Here is a concise overview for context.
+
+## Evidence
+
+The retrieved records support the summary.
+"""
+
+    assert _user_facing_text(response) == response.strip()
+
+
+def test_user_facing_text_removes_explicit_think_blocks() -> None:
+    response = """
+<think>I should plan this response first.</think>
+## Final Answer
+
+User-facing content.
+"""
+
+    assert _user_facing_text(response) == (
+        "## Final Answer\n\nUser-facing content."
+    )
 
 
 @pytest.mark.parametrize(

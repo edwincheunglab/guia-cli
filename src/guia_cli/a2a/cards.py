@@ -64,6 +64,19 @@ AGENT_CARD_DEFINITIONS: MappingProxyType[
             tags=("computational biology", "genomics", "gene annotation"),
             examples=("Summarize evidence for human BRCA1.",),
         ),
+        "scientific_critic": AgentCardDefinition(
+            name="GUIA CLI Scientific Critic",
+            description=(
+                "Restricted local agent for critical review of biomedical "
+                "claims, methods, evidence trails, reports, and agent outputs."
+            ),
+            skill_id="scientific_critique",
+            skill_name="Scientific critique",
+            tags=("scientific critique", "methodology", "evidence review"),
+            examples=(
+                "Critique whether this report's evidence supports its conclusion.",
+            ),
+        ),
     }
 )
 

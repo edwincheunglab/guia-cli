@@ -148,6 +148,7 @@ def test_show_a2a_reports_service_lifecycle(
             "medicinal_chemist": "http://127.0.0.1:31001/",
             "structural_biologist": "http://127.0.0.1:31002/",
             "computational_biologist": "http://127.0.0.1:31003/",
+            "scientific_critic": "http://127.0.0.1:31004/",
         }
 
         def __init__(self, result: TeamResponse) -> None:
@@ -184,6 +185,7 @@ def test_show_a2a_reports_service_lifecycle(
     assert "A2A services started:" in output
     assert "structural_biologist: http://127.0.0.1:31002/" in output
     assert "A2A services stopped." in output
+    assert "scientific_critic: http://127.0.0.1:31004/" in output
     assert output.index("Structure result.") < output.index(
         "A2A services stopped."
     )

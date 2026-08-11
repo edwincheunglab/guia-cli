@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,15 @@ CONTEXT_LENGTH_GUIDANCE = (
     "responses automatically, but this request still produced too much context. "
     "Narrow the query to one target, organism, assay type, compound, or a smaller "
     "result limit, or choose a model with a larger context window."
+)
+_INTERNAL_DRAFT_MARKERS = (
+    "the user is asking",
+    "let me analyze",
+    "let me structure",
+    "let me compile",
+    "let me organize",
+    "i need to assess",
+    "i should provide",
 )
 
 
@@ -154,6 +164,25 @@ def _final_text(event: object) -> str | None:
     return "\n".join(text_parts).strip() or None
 
 
+def _user_facing_text(text: str) -> str:
+    """Remove a recognizable draft preamble before a Markdown final answer."""
+
+    without_think_blocks = re.sub(
+        r"<think\b[^>]*>.*?</think>",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    ).strip()
+    heading = re.search(r"(?m)^#{1,3}\s+\S", without_think_blocks)
+    if heading is None or heading.start() == 0:
+        return without_think_blocks
+
+    preamble = without_think_blocks[: heading.start()].lower()
+    if any(marker in preamble for marker in _INTERNAL_DRAFT_MARKERS):
+        return without_think_blocks[heading.start() :].strip()
+    return without_think_blocks
+
+
 class AgentRuntime:
     """Execute one ADK agent locally with in-memory conversation sessions."""
 
@@ -226,7 +255,7 @@ class AgentRuntime:
 
         if final_response is None:
             raise AgentRuntimeError("Agent did not produce a final response.")
-        return final_response
+        return _user_facing_text(final_response)
 
 
 __all__ = [
@@ -242,5 +271,6 @@ __all__ = [
     "RuntimeConfigurationError",
     "SESSION_ID_STATE_KEY",
     "_is_context_length_error",
+    "_user_facing_text",
     "create_model",
 ]

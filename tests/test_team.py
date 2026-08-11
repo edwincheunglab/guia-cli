@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from google.adk.models.lite_llm import LiteLlm
 
 from guia_cli.agents.orchestrator import RoutingDecision
 from guia_cli.agents.team import GuiaTeam
@@ -185,24 +186,49 @@ def test_team_returns_clarification_without_agent_call() -> None:
     assert result.handled is False
 
 
-def test_team_reports_agent_not_available_in_preview() -> None:
+def test_team_routes_scientific_critique_with_shared_session() -> None:
     routing = RoutingDecision(
         agent="scientific_critic",
         task="Critique an RNA-seq interpretation.",
         reason="Scientific critique request.",
     )
+    scientific_critic = FakeDomainAgent("The causal claim is overstated.")
     team = GuiaTeam(
         orchestrator=FakeOrchestrator(routing),
-        agents={},
+        agents={"scientific_critic": scientific_critic},
     )
 
-    result = asyncio.run(team.ask("Critique an RNA-seq interpretation"))
+    result = asyncio.run(
+        team.ask(
+            "Critique an RNA-seq interpretation",
+            session_id="session-critic",
+        )
+    )
 
-    assert result.handled is False
-    assert "scientific critic" in result.text
-    assert "not available" in result.text
+    assert result.handled is True
+    assert result.text == "The causal claim is overstated."
+    assert scientific_critic.calls == [
+        ("Critique an RNA-seq interpretation.", "session-critic")
+    ]
 
 
 def test_team_requires_valid_construction() -> None:
     with pytest.raises(ValueError):
         GuiaTeam()
+
+
+def test_production_team_starts_all_four_a2a_services() -> None:
+    async def exercise() -> None:
+        team = GuiaTeam(LiteLlm(model="openai/test-model"))
+        await team.start()
+        try:
+            assert set(team.a2a_urls) == {
+                "medicinal_chemist",
+                "structural_biologist",
+                "computational_biologist",
+                "scientific_critic",
+            }
+        finally:
+            await team.stop()
+
+    asyncio.run(exercise())

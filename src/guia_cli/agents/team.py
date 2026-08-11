@@ -18,6 +18,7 @@ from guia_cli.agents.orchestrator import (
     LiteOrchestrator,
     RoutingDecision,
 )
+from guia_cli.agents.scientific_critic import ScientificCriticAgent
 from guia_cli.agents.structural_biologist import StructuralBiologistAgent
 from guia_cli.sessions import SessionError, open_session
 
@@ -109,6 +110,7 @@ class GuiaTeam:
                 "medicinal_chemist": MedicinalChemistAgent(model),
                 "structural_biologist": StructuralBiologistAgent(model),
                 "computational_biologist": ComputationalBiologistAgent(model),
+                "scientific_critic": ScientificCriticAgent(model),
             }
             self._a2a_cluster = LocalA2ACluster(local_agents)
             self._agents: dict[AgentName, DomainAgentProtocol] = {}

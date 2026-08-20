@@ -13,7 +13,7 @@ from guia_cli.sessions import SessionPaths
 
 MAX_INPUT_BYTES = 25 * 1024 * 1024
 MAX_OUTPUT_BYTES = 10 * 1024 * 1024
-MAX_TABLE_ROWS = 10_000
+MAX_TABLE_ROWS = 50_000
 MAX_TABLE_COLUMNS = 256
 
 READABLE_EXTENSIONS = frozenset({".txt", ".md", ".csv", ".tsv", ".xlsx"})

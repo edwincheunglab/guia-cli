@@ -146,7 +146,8 @@ GUIA_DATA_DIR=/path/to/guia-data
 You can also export this variable in your shell. Supported input formats are
 `.txt`, `.md`, `.csv`, `.tsv`, and `.xlsx`, with a maximum file size of 25 MiB.
 Text files must use UTF-8 encoding. Users can extend these formats and limits to
-suit their own local workflows.
+suit their own local workflows. The Orchestrator can inspect session files to
+select the appropriate domain agent, which performs the scientific analysis.
 
 ## Relationship to GUIA
 

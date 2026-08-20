@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
+import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Protocol
 
 from a2a.server.agent_execution import (
@@ -26,10 +30,37 @@ from starlette.applications import Starlette
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from guia_cli.runtime import ContextLengthExceededError
-from guia_cli.sessions import validate_session_id
+from guia_cli.sessions import open_session, validate_session_id
 
 _ERROR_PREFIX = "__GUIA_A2A_ERROR__:"
 _MAX_TASK_CHARS = 100_000
+_ERROR_LOG_NAME = "a2a-errors.log"
+
+
+def _log_agent_exception(session_id: str, exc: Exception) -> Path | None:
+    """Append a private traceback to the active session's local error log."""
+
+    try:
+        session = open_session(session_id)
+        log_path = session.logs / _ERROR_LOG_NAME
+        entry = "".join(
+            [
+                f"[{datetime.now(timezone.utc).isoformat()}] ",
+                f"{type(exc).__name__}: {exc}\n",
+                "".join(traceback.format_exception(exc)),
+                "\n",
+            ]
+        )
+        file_descriptor = os.open(
+            log_path,
+            os.O_APPEND | os.O_CREAT | os.O_WRONLY,
+            0o600,
+        )
+        with os.fdopen(file_descriptor, "a", encoding="utf-8") as handle:
+            handle.write(entry)
+        return log_path
+    except Exception:
+        return None
 
 
 class DomainAgent(Protocol):
@@ -139,11 +170,18 @@ class GuiaAgentExecutor(AgentExecutor):
                 context_id=session_id,
                 task_id=message.task_id or None,
             )
-        except Exception:
+        except Exception as exc:
+            log_path = _log_agent_exception(session_id, exc)
+            log_guidance = (
+                f" Details were written to logs/{log_path.name}."
+                if log_path is not None
+                else ""
+            )
             await _send_error(
                 event_queue,
                 "execution_failed",
-                "The local domain agent could not complete this request.",
+                "The local domain agent could not complete this request."
+                f"{log_guidance}",
                 context_id=session_id,
                 task_id=message.task_id or None,
             )

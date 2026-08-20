@@ -201,3 +201,6 @@ def test_cli_without_command_prints_help(
     assert exit_code == 0
     assert "usage: guia" in captured.out
     assert "ask" in captured.out
+    assert "--session" in captured.out
+    assert "--show-route" in captured.out
+    assert "--show-a2a" in captured.out

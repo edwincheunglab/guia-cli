@@ -27,6 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="guia",
         description="Run GUIA biomedical research agents locally.",
+        epilog=(
+            "ask options:\n"
+            "  --session SESSION_ID  Reuse a previous GUIA CLI session.\n"
+            "  --show-route          Show which in-house agent was selected.\n"
+            "  --show-a2a            Show local A2A service lifecycle details.\n\n"
+            "Run 'guia ask --help' for full ask command usage."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version",

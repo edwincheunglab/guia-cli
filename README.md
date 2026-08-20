@@ -1,14 +1,13 @@
 # GUIA CLI
 
 GUIA CLI is a local, command-line edition of GUIA for biomedical research
-workflows. It is being developed as an independent project with a deliberately
-smaller tool surface than the full GUIA platform.
+workflows. It provides an extensible framework for users to integrate their own
+tools and adapt the architecture to their workflows.
 
 ## Project status
 
-GUIA CLI is in early development. The current preview provides a routing
-orchestrator and restricted Medicinal Chemist, Structural Biologist,
-Computational Biologist, and Scientific Critic agents.
+The current framework provides a routing Orchestrator and Medicinal Chemist,
+Structural Biologist, Computational Biologist, and Scientific Critic agents.
 
 The local agent roster is:
 
@@ -18,19 +17,24 @@ The local agent roster is:
 - Computational Biologist
 - Scientific Critic
 
-Agents will be restricted to approved public biomedical APIs and files inside
-the active local session. GUIA CLI will not initially provide arbitrary code
-execution, shell access, package installation, browser automation, or the full
-commercial GUIA toolset.
+Code execution, autonomous package installation, and browser automation are
+not built in, but users can add them to suit their local systems.
 
 ## Requirements
 
 - Python 3.11 or newer
 - An API key for a supported model provider
 
-## Development installation
+## Installation
 
-From the repository root:
+Clone the repository and enter its directory:
+
+```bash
+git clone https://github.com/edwincheunglab/guia-cli.git
+cd guia-cli
+```
+
+Create a virtual environment and install GUIA CLI:
 
 ```bash
 python3 -m venv .venv
@@ -106,6 +110,41 @@ local workspace files:
 ```bash
 guia ask "Review the files saved in this session" --session SESSION_ID
 ```
+
+## Tutorial: analyze a local file
+
+Choose a session name and create its upload directory. The session does not
+need to exist beforehand.
+
+```bash
+SESSION=egfr-study
+mkdir -p "$HOME/.guia-cli/sessions/$SESSION/uploads"
+```
+
+Copy a file into the session:
+
+```bash
+cp /path/to/egfr-information.md "$HOME/.guia-cli/sessions/$SESSION/uploads/"
+```
+
+Ask GUIA CLI to analyze it:
+
+```bash
+guia ask "Analyze egfr-information.md from the uploads directory" --session "$SESSION"
+```
+
+By default, session files are stored under
+`~/.guia-cli/sessions/SESSION_ID/`. To use another base directory, set
+`GUIA_DATA_DIR` in the `.env` file at the repository root:
+
+```env
+GUIA_DATA_DIR=/path/to/guia-data
+```
+
+You can also export this variable in your shell. Supported input formats are
+`.txt`, `.md`, `.csv`, `.tsv`, and `.xlsx`, with a maximum file size of 25 MiB.
+Text files must use UTF-8 encoding. Users can extend these formats and limits to
+suit their own local workflows.
 
 The current preview can query approved public APIs and work with approved small
 files in its session directory.

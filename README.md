@@ -22,7 +22,7 @@ The local agent roster is:
 - Scientific Critic
 
 <p align="center">
-  <img src="public/agent_roster.png" alt="GUIA CLI agent roster" width="700">
+  <img src="public/agent_roster.png" alt="GUIA CLI agent roster" width="300">
 </p>
 
 Code execution, autonomous package installation, and browser automation are

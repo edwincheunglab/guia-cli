@@ -21,6 +21,10 @@ The local agent roster is:
 - Computational Biologist
 - Scientific Critic
 
+<p align="center">
+  <img src="public/agent_roster.png" alt="GUIA CLI agent roster" width="700">
+</p>
+
 Code execution, autonomous package installation, and browser automation are
 not built in, but users can add them to suit their local systems. Agents are provided 
 access to ChEMBL, RCSB PDB, UniProt, NCBI E-utilities, and Open Targets.

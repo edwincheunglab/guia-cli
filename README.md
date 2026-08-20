@@ -66,7 +66,7 @@ OPENAI_API_KEY=your-key
 OPENAI_API_BASE=base-url
 ```
 
-## Current usage
+## Basic usage
 
 Ask a medicinal chemistry or compound-retrieval question:
 
@@ -105,7 +105,7 @@ local workspace files:
 guia ask "Review the files saved in this session" --session SESSION_ID
 ```
 
-## Tutorial: analyze a local file
+## Analyze a local file
 
 Choose a session name and create its upload directory. The session does not
 need to exist beforehand.

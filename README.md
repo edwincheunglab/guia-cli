@@ -18,7 +18,8 @@ The local agent roster is:
 - Scientific Critic
 
 Code execution, autonomous package installation, and browser automation are
-not built in, but users can add them to suit their local systems.
+not built in, but users can add them to suit their local systems. Agents are provided 
+access to ChEMBL, RCSB PDB, UniProt, NCBI E-utilities, and Open Targets.
 
 ## Requirements
 
@@ -56,14 +57,13 @@ Copy the environment template and configure the provider you intend to use:
 cp .env.example .env
 ```
 
-Never commit `.env` or real API keys.
-
 Set `GUIA_MODEL` using LiteLLM's `provider/model` format and add the matching
 provider key. For example:
 
 ```env
 GUIA_MODEL=openai/your-model-name
 OPENAI_API_KEY=your-key
+OPENAI_API_BASE=base-url
 ```
 
 ## Current usage
@@ -74,19 +74,13 @@ Ask a medicinal chemistry or compound-retrieval question:
 guia ask "Find reported EGFR inhibitors"
 ```
 
-Or ask about experimentally determined protein structures:
+Or ask for details regarding protein structures:
 
 ```bash
 guia ask "Compare representative human EGFR structures in the PDB"
 ```
 
-Or retrieve and interpret gene-level evidence:
-
-```bash
-guia ask "Summarize functional and disease evidence for human BRCA1"
-```
-
-Or critically review a supplied claim, report, or session file:
+Or critically review a scientific claim, report, or session file:
 
 ```bash
 guia ask "Critique whether the evidence in results/EGFR_summary.md supports its conclusions" --session SESSION_ID
@@ -146,47 +140,10 @@ You can also export this variable in your shell. Supported input formats are
 Text files must use UTF-8 encoding. Users can extend these formats and limits to
 suit their own local workflows.
 
-The current preview can query approved public APIs and work with approved small
-files in its session directory.
-
-For each `guia ask` invocation, all currently implemented domain agents start
-eagerly as in-process A2A JSON-RPC services bound to random
-`127.0.0.1` ports. The orchestrator dispatches domain tasks through A2A using a
-run-scoped bearer token and the GUIA session ID as the A2A context ID. The
-services and token are cleaned up automatically when the command finishes.
-Domain-agent A2A requests have a one-hour timeout for long biomedical queries.
-
-API results are compacted before they enter model context. GUIA CLI preserves
-scientifically useful identifiers and pagination metadata, limits repeated
-records and oversized fields, and reports truncation metadata to the agent.
-Bounded-query rules are enforced for ChEMBL, RCSB PDB, UniProt, NCBI
-E-utilities, and Open Targets.
-
-Uploaded tables and text are also returned to agents in bounded chunks with
-continuation offsets, preventing a large local file from filling model context.
-
-If a provider still rejects an oversized context, the CLI returns a concise
-message suggesting narrower scientific filters or a larger-context model.
-
-## Security and privacy warning
-
-GUIA CLI is research software and is not a medical device. Its output may be
-incorrect, incomplete, or fabricated and must be independently verified by a
-qualified researcher.
-
-Prompts and selected data may be sent to the model provider configured by the
-user. Do not provide protected health information, confidential research data,
-credentials, or other sensitive material unless the provider and environment
-have been approved for that use.
-
-Future agent tools will be restricted, but tool restrictions are not a security
-sandbox. Run untrusted research workflows in an isolated environment. See
-[SECURITY.md](SECURITY.md) for reporting guidance.
-
 ## Relationship to GUIA
 
 GUIA CLI is maintained as a separate codebase. It does not include the full
-GUIA web interface, commercial integrations, or advanced execution workflows.
+GUIA web interface, integrations, agent features, or advanced execution workflows.
 
 ## License
 

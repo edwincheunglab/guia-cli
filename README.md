@@ -1,5 +1,9 @@
 # GUIA CLI
 
+<p align="center">
+  <img src="public/logo.jpg" alt="GUIA CLI logo" width="300">
+</p>
+
 GUIA CLI is a local, command-line edition of GUIA for biomedical research
 workflows. It provides an extensible framework for users to integrate their own
 tools and adapt the architecture to their workflows.
